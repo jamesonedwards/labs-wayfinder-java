@@ -76,7 +76,6 @@ public class WayFinder extends PApplet {
 	private boolean debugView;
 	private int frameCount;
 
-	private Mat src_img;
 	private VideoCapture capture;
 	//private Capture capture; // OR: org.opencv.highgui.VideoCapture???
 	//private Texture mTexture;
@@ -87,7 +86,8 @@ public class WayFinder extends PApplet {
 	private Mat frame;
 	private Mat back;
 	private Mat fore;
-	List<MatOfPoint> contours;
+	ArrayList<MatOfPoint> contours;
+	ArrayList<MatOfPoint> debugShowlargestContour;
 
 	/**
 	 * HACK: Get this PApplet to run from command line.
@@ -148,6 +148,7 @@ public class WayFinder extends PApplet {
 			back = new Mat();
 			fore = new Mat();
 			contours = new ArrayList<MatOfPoint>();
+			debugShowlargestContour = new ArrayList<MatOfPoint>();
 			frameCount = 0;
 			debugView = false;
 		} catch (Exception ex) {
@@ -170,6 +171,7 @@ public class WayFinder extends PApplet {
 	public void draw() {
 		frameCount++;
 		background(0.0f);
+		contours.clear();
 		
         if(frameCount % FRAME_COUNT_THRESHOLD == 0) {
         	detected = false;
@@ -221,11 +223,11 @@ public class WayFinder extends PApplet {
 
             // When debug mode is off, the background should be black.
             if(debugView) {
+            	debugShowlargestContour.clear();
                 if(contours.size() > 0) {
                 	Imgproc.drawContours(frame, contours, -1, new Scalar(0, 0, 255), 2);
-                	ArrayList<MatOfPoint> largestContourToShow = new ArrayList<MatOfPoint>();
-                	largestContourToShow.add(contours.get(largestIndex));
-                	Imgproc.drawContours(frame, largestContourToShow, -1, new Scalar(255, 0, 0), 2);
+                	debugShowlargestContour.add(contours.get(largestIndex));
+                	Imgproc.drawContours(frame, debugShowlargestContour, -1, new Scalar(255, 0, 0), 2);
                 }
             }
     	    
