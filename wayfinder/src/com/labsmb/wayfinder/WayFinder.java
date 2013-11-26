@@ -32,6 +32,7 @@ using namespace std;
 package com.labsmb.wayfinder;
 
 import java.util.ArrayList;
+import java.util.List;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Logger;
 
@@ -42,6 +43,8 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 import processing.core.*;
 import processing.opengl.Texture;
 import processing.video.*;
+
+import com.labsmb.util.OpenCvUtil;
 import com.labsmb.util.ShapeUtil;
 
 import org.opencv.core.*;
@@ -49,6 +52,8 @@ import org.opencv.core.*;
 import org.opencv.core.Mat;
 import org.opencv.highgui.Highgui;
 import org.opencv.highgui.VideoCapture;
+import org.opencv.imgproc.Imgproc;
+import org.opencv.imgproc.Moments;
 import org.opencv.video.BackgroundSubtractorMOG;
 
 public class WayFinder extends PApplet {
@@ -64,9 +69,7 @@ public class WayFinder extends PApplet {
 	private static final int FRAME_COUNT_THRESHOLD = 10;
 
 	private ArrayList<Destination> destinations;
-	// HACK: Need to figure out a better way to maintain center state.
-	// private PVector spotlightCenter2D;
-	private PVector spotlightCenter3D; // 3D vector is required for drawVector.
+	private PVector spotlightCenter3D;
 	private float spotlightRadius;
 	private float arrowLength;
 	private boolean detected;
@@ -74,18 +77,17 @@ public class WayFinder extends PApplet {
 	private int frameCount;
 
 	private Mat src_img;
-	private Capture capture; // OR: org.opencv.highgui.VideoCapture???
-	private Texture mTexture;
+	private VideoCapture capture;
+	//private Capture capture; // OR: org.opencv.highgui.VideoCapture???
+	//private Texture mTexture;
 
 	// Detection sample: http://mateuszstankiewicz.eu/?p=189
-	// private org.opencv.video.BackgroundSubtractorMOG2 bg; // TODO: Binding
-	// doesn't exist due to bug! http://code.opencv.org/issues/3171#note-1
+	// private org.opencv.video.BackgroundSubtractorMOG2 bg; // TODO: Binding doesn't exist due to bug! http://code.opencv.org/issues/3171#note-1
 	private BackgroundSubtractorMOG bg;
 	private Mat frame;
 	private Mat back;
 	private Mat fore;
-	// ArrayList<ArrayList<cv.Point>> contours;
-	ArrayList<ArrayList<org.opencv.core.Point>> contours;
+	List<MatOfPoint> contours;
 
 	/**
 	 * HACK: Get this PApplet to run from command line.
@@ -128,20 +130,24 @@ public class WayFinder extends PApplet {
 			// Initialized state.
 			spotlightRadius = (float) width / 16.0f;
 			arrowLength = (float) min(width, height) / 2.0f;
-			// spotlightCenter2D = Vec2f((float)width / 2.0f, (float)height /
-			// 2.0f);
 			spotlightCenter3D = new PVector((float) width / 2.0f, (float) height / 2.0f, 0.0f);
 			detected = false;
 
 			// Start the video capture.
-			capture = new Capture(this, Capture.list()[0]);
-			capture.start();
-
+			capture = new VideoCapture(0);
+			capture.open(0);
+		    if(!capture.isOpened()){
+		        throw new Exception("Camera Error");
+		    }
+			
 			bg = new BackgroundSubtractorMOG();
 			bg.setInt("nmixtures", 3);
 			// bg.set("bShadowDetection", false);
 			// bg.setBool("detectShadows", true);
-
+			frame = new Mat();
+			back = new Mat();
+			fore = new Mat();
+			contours = new ArrayList<MatOfPoint>();
 			frameCount = 0;
 			debugView = false;
 		} catch (Exception ex) {
@@ -160,74 +166,55 @@ public class WayFinder extends PApplet {
 			debugView = !debugView;
 		}
 	}
-
+	
 	public void draw() {
 		frameCount++;
 		background(0.0f);
 		
-        if (capture.available() == true) {
-        	capture.read();
-        }
-        //image(capture, 0, 0);
-        set(0, 0, capture);
-        
         if(frameCount % FRAME_COUNT_THRESHOLD == 0) {
         	detected = false;
 
-        	// TODO: Consider converting capture to grayscale or blurring then thresholding to improve performance.
         	// Get the current frame.
-        	PImage curFrame = capture.get();
-            //image(curFrame, 0, 0);
-
-        	//Mat m = ocv.toCV(pimg);
-        	frame = toOcv(curFrame);
-            //cv.Mat frameGray, frameBlurred, frameThresh, foreGray, backGray;
-            //cvtColor(frame, frameGray, CV_BGR2GRAY);
+        	capture.retrieve(frame);
+    	    LOGGER.fine("Frame Obtained");
+    	    
+        	// TODO: Consider converting capture to grayscale or blurring then thresholding to improve performance.
+        	//Mat frameGray, frameBlurred, frameThresh, foreGray, backGray;
+            //Imgproc.cvtColor(frame, frameGray, CV_BGR2GRAY);
             //int blurAmount = 10;
-            //cv.blur(frame, frameBlurred, cv.Size(blurAmount, blurAmount));
-            //threshold(frameBlurred, frameThresh, 100, 255, CV_THRESH_BINARY);
+            //Imgproc.blur(frame, frameBlurred, cv.Size(blurAmount, blurAmount));
+            //Imgproc.threshold(frameBlurred, frameThresh, 100, 255, CV_THRESH_BINARY);
+    	    //Imgproc.erode(fore, fore, new Mat());
+            //Imgproc.dilate(fore, fore, new Mat());
 
+    	    // Subtract background.
+            bg.apply(frame, fore);
+            
             // Get all contours.
-            //bg.operator()(frameThresh,fore);
-            bg.operator()(frame, fore);
-            bg.getBackgroundImage(back);
-            erode(fore, fore, new Mat());
-            dilate(fore, fore, new Mat());
-            findContours(fore, contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_NONE);
+            Imgproc.findContours(fore, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE);
 
             // Get largest contour: http://stackoverflow.com/questions/15012073/opencv-draw-draw-contours-of-2-largest-objects
             int largestIndex = 0;
-            int largestContour = 0;
+            double largestContourArea = 0;
             for(int i = 0; i < contours.size(); i++) {
-                if(contours[i].size() > largestContour) {
-                    largestContour = contours[i].size();
+            	double contourArea = Imgproc.contourArea(contours.get(i));
+                if(contourArea > largestContourArea) {
+                	largestContourArea = contourArea;
                     largestIndex = i;
                 }
             }
 
-            ArrayList<ArrayList<Point>> hack;
-            Rect rect;
-            Point center;
-
             if(contours.size() > 0) {
-                hack.push_back(contours[largestIndex]);
-
-                // Find bounding rectangle for largest countour.
-                rect = boundingRect(contours[largestIndex]);
-
                 // Make sure the blog is large enough to be a track-worthy.
-                LOGGER.info("Rext area = " + rect.area());
-                if(rect.area() >= 5000) { // TODO: Tweak this value.
-                    // Get center of rectangle.
-                    center = new Point(
-                                 rect.x + (rect.width / 2),
-                                 rect.y + (rect.height / 2)
-                             );
-
-                    // Show guide.
-                    spotlightCenter3D.x = (float)center.x;
-                    spotlightCenter3D.y = (float)center.y;
+                if (largestContourArea >= 10) { // TODO: Tweak this value.
+                	// Find the center mass of the contour.
+                	// Source: http://stackoverflow.com/questions/18345969/how-to-get-the-mass-center-of-a-contour-android-opencv
+                    Moments moments = Imgproc.moments(contours.get(largestIndex));
+                    spotlightCenter3D.x = (float)(moments.get_m10() / moments.get_m00());
+                    spotlightCenter3D.y = (float)(moments.get_m01() / moments.get_m00());
                     //spotlightRadius = (rect.width + rect.y) / 2;
+                 
+                    // Show guide.
                     detected = true;
                 }
             }
@@ -235,19 +222,18 @@ public class WayFinder extends PApplet {
             // When debug mode is off, the background should be black.
             if(debugView) {
                 if(contours.size() > 0) {
-                    drawContours(frame, contours, -1, new Scalar(0, 0, 255), 2);
-                    drawContours(frame, hack, -1, new Scalar(255, 0, 0), 2);
-                    rectangle(frame, rect, new Scalar(0, 255, 0), 3);
-                    circle(frame, center, 10, new Scalar(0, 255, 0), 3);
+                	Imgproc.drawContours(frame, contours, -1, new Scalar(0, 0, 255), 2);
+                	ArrayList<MatOfPoint> largestContourToShow = new ArrayList<MatOfPoint>();
+                	largestContourToShow.add(contours.get(largestIndex));
+                	Imgproc.drawContours(frame, largestContourToShow, -1, new Scalar(255, 0, 0), 2);
                 }
-                mTexture = gl.Texture(fromOcv(frame));
             }
-
+    	    
 	        // TODO: Create control panel for all inputs.
 		}
 
-	    //if(mTexture && debugView)
-	    //    gl.draw(mTexture);
+	    if(debugView)
+	    	image(OpenCvUtil.toPImage(this, frame), 0, 0);
 
 	    if (detected) {
 	        guide();
@@ -289,7 +275,9 @@ public class WayFinder extends PApplet {
 	 * Put all cleanup stuff here.
 	 */
 	private void cleanup() {
-
+		// FIXME: Need to release other resources - app keeps running after window closes!
+		if (capture != null)
+			capture.release();
 	}
 
 	public void stop() {
