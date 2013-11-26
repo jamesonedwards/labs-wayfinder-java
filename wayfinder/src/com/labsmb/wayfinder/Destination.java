@@ -1,7 +1,12 @@
 package com.labsmb.wayfinder;
 
 import processing.core.*;
+import java.io.File;
+import java.io.FileReader;
 import java.util.ArrayList;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
 
 public class Destination {
 	private static ArrayList<Destination> destinations;
@@ -34,33 +39,27 @@ public class Destination {
 		this.vector = vector;
 	}
 
-	public static ArrayList<Destination> getDestinations()
-	{
-        // FIXME: REMOVE THIS:
-        destinations = new ArrayList<Destination>();
-        destinations.add(new Destination("test", 0, 0));
-		
+	public static ArrayList<Destination> getDestinations() {
 		// Initialize the destinations vector if not already initialized.
-	    if (destinations.size() == 0) {
-	        // Load destinations from config file.
-	        String configPath = "destinations.json";
-	        
-	        /*
-	        fs::path path(configPath);
-	        if (fs::exists(path)) {
-	            DataSourceRef dsr = loadFile(path.native());
-	            JsonTree tree = ci::JsonTree::JsonTree(dsr);
-	            JsonTree::Container jsonDestinations = tree.getChild("destinations").getChildren();
-	            for(JsonTree::Iter iter = jsonDestinations.begin(); iter != jsonDestinations.end(); ++iter) {
-	                Destination::destinations.push_back(Destination(
-	                                                        iter->getChild("name").getValue(),
-	                                                        boost::lexical_cast<float>(iter->getChild("x").getValue()),
-	                                                        boost::lexical_cast<float>(iter->getChild("y").getValue())));
-	            }
-	        } else {
-	            throw new Exception("Cannot find destinations config file: " + configPath);
-	        }*/
-	    }
-	    return destinations;
+		if (destinations == null) {
+			// Load destinations from config file.
+			String configPath = System.getProperty("user.dir") + File.separator + "config" + File.separator + "destinations.json";
+			destinations = new ArrayList<Destination>();
+			try (FileReader fr = new FileReader(configPath);) {
+				JSONParser parser = new JSONParser();
+				JSONObject jsonRoot = (JSONObject) parser.parse(fr);
+				JSONArray jsonArr = (JSONArray) jsonRoot.get("destinations");
+				for (Object destObj : jsonArr) {
+					JSONObject jsonDest = (JSONObject) destObj;
+					destinations.add(new Destination((String) jsonDest.get("name"), Float.parseFloat(String.valueOf(jsonDest.get("x"))), Float
+							.parseFloat(String.valueOf(jsonDest.get("y")))));
+				}
+			} catch (Exception ex) {
+				System.err.println("Cannot load properties file: " + ex.getMessage());
+			} finally {
+
+			}
+		}
+		return destinations;
 	}
 }
