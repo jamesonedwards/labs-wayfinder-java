@@ -67,6 +67,7 @@ public class WayFinder extends PApplet {
 	// private static final int HEIGHT = 720;
 	private static final int FRAME_RATE = 30;
 	private static final int FRAME_COUNT_THRESHOLD = 10;
+	private static final int MIN_VALID_CONTOUR_AREA = 800; // TODO: Tweek this value.
 
 	private ArrayList<Destination> destinations;
 	private PVector spotlightCenter3D;
@@ -77,8 +78,6 @@ public class WayFinder extends PApplet {
 	private int frameCount;
 
 	private VideoCapture capture;
-	//private Capture capture; // OR: org.opencv.highgui.VideoCapture???
-	//private Texture mTexture;
 
 	// Detection sample: http://mateuszstankiewicz.eu/?p=189
 	// private org.opencv.video.BackgroundSubtractorMOG2 bg; // TODO: Binding doesn't exist due to bug! http://code.opencv.org/issues/3171#note-1
@@ -208,7 +207,7 @@ public class WayFinder extends PApplet {
 
             if(contours.size() > 0) {
                 // Make sure the blog is large enough to be a track-worthy.
-                if (largestContourArea >= 10) { // TODO: Tweak this value.
+                if (largestContourArea >= MIN_VALID_CONTOUR_AREA) {
                 	// Find the center mass of the contour.
                 	// Source: http://stackoverflow.com/questions/18345969/how-to-get-the-mass-center-of-a-contour-android-opencv
                     Moments moments = Imgproc.moments(contours.get(largestIndex));
@@ -258,13 +257,12 @@ public class WayFinder extends PApplet {
 			// Vectors should be of uniform length. Need a point *along* the
 			// vector at a predefined distance from the start point.
 			PVector endPt = calculateLinePoint(spotlightCenter3D, iter.getVector(), arrowLength);
-			// PVector endPt3d = new PVector(endPt.x, endPt.y, 0);
+			// FIXME: Destination names need to be placed at the end of the arrows...maybe? Or is this actually better?
 			PVector namePt = calculateLinePoint(spotlightCenter3D, iter.getVector(), arrowLength * 2 / 3);
 
 			fill(255, 255, 255);
 			// Draw a line from the spotlight center to each of the
 			// destinations.
-			// gl.drawVector(spotlightCenter3D, endPt3d, 15.0f, 5.0f);
 			ShapeUtil.drawArrowLine(this, spotlightCenter3D.x, spotlightCenter3D.y, endPt.x, endPt.y, 0, radians(30), true);
 
 			// Display the destination name.

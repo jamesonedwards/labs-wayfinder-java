@@ -255,6 +255,8 @@ public class ShapeUtil {
 	 *            true for a solid arrow; false for an "open" arrow
 	 */
 	public static void drawArrowLine(PApplet pApplet, float x0, float y0, float x1, float y1, float startAngle, float endAngle, boolean solid) {
+		pApplet.strokeWeight(DEFAULT_STROKE_WEIGHT * 3);
+		pApplet.stroke(255);
 		pApplet.line(x0, y0, x1, y1);
 		if (startAngle != 0) {
 			ShapeUtil.drawArrowhead(pApplet, x0, y0, PApplet.atan2(y1 - y0, x1 - x0), startAngle, solid);
@@ -262,6 +264,8 @@ public class ShapeUtil {
 		if (endAngle != 0) {
 			ShapeUtil.drawArrowhead(pApplet, x1, y1, PApplet.atan2(y0 - y1, x0 - x1), endAngle, solid);
 		}
+		pApplet.strokeWeight(DEFAULT_STROKE_WEIGHT);
+		pApplet.stroke(DEFAULT_STROKE_COLOR[0]);
 	}
 
 	/**
@@ -280,8 +284,8 @@ public class ShapeUtil {
 	 * @param solid
 	 *            true for a solid arrow, false for an "open" arrow
 	 */
-	public static void drawArrowhead(PApplet pApplet, float x0, float y0, float lineAngle, float arrowAngle, boolean solid) {
-		float phi;
+	protected static void drawArrowhead(PApplet pApplet, float x0, float y0, float lineAngle, float arrowAngle, boolean solid) {
+		//float phi;
 		float x2;
 		float y2;
 		float x3;
