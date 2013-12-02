@@ -32,7 +32,9 @@ using namespace std;
 package com.labsmb.wayfinder;
 
 import java.util.ArrayList;
+import java.util.LinkedList;
 import java.util.List;
+import java.util.Stack;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Logger;
 
@@ -69,9 +71,13 @@ public class WayFinder extends PApplet {
 	private static final int FRAME_COUNT_THRESHOLD = 10;
 	private static final int MIN_VALID_CONTOUR_AREA = 800; // TODO: Tweek this value.
 	private static final float DESTINATION_NAME_POSITION_MULTIPLIER = 1.1f;
+	private static int SPOTLIGHT_HISTORY_MAX_LENGTH = FRAME_RATE;
+	private static float SPOTLIGHT_HISTORY_MIN_SPREAD = 10.0f;
+	private static float SPOTLIGHT_HISTORY_MAX_SPREAD = 200.0f;
 
 	private ArrayList<Destination> destinations;
 	private PVector spotlightCenter3D;
+	private LinkedList<PVector> spotlightHistory;
 	private float spotlightRadius;
 	private float arrowLength;
 	private boolean detected;
@@ -130,6 +136,7 @@ public class WayFinder extends PApplet {
 			spotlightRadius = (float) width / 16.0f;
 			arrowLength = (float) min(width, height) / 2.0f;
 			spotlightCenter3D = new PVector((float) width / 2.0f, (float) height / 2.0f, 0.0f);
+			spotlightHistory = new LinkedList<PVector>();
 			detected = false;
 
 			// Start the video capture.
@@ -172,7 +179,7 @@ public class WayFinder extends PApplet {
 		background(0.0f);
 		contours.clear();
 		
-        if(frameCount % FRAME_COUNT_THRESHOLD == 0) {
+        if(frameCount % FRAME_COUNT_THRESHOLD == 0) { // Don't detect with every frame.
         	detected = false;
 
         	// Get the current frame.
@@ -216,7 +223,8 @@ public class WayFinder extends PApplet {
                     //spotlightRadius = (rect.width + rect.y) / 2;
                  
                     // Show guide.
-                    detected = true;
+                    //detected = true;
+                    detected = isLost();
                 }
             }
 
@@ -239,6 +247,26 @@ public class WayFinder extends PApplet {
 	    if (detected) {
 	        guide();
 	    }
+	}
+	
+	private boolean isLost() {
+		// Push current position onto stack.
+		spotlightHistory.push(new PVector(spotlightCenter3D.x, spotlightCenter3D.y, spotlightCenter3D.z));
+		
+		// Trim the history.
+		if (spotlightHistory.size() > SPOTLIGHT_HISTORY_MAX_LENGTH)
+			spotlightHistory.poll();
+		
+		// Calculate the change in position though the history.
+		float spread = PVector.dist(spotlightHistory.getLast(), spotlightHistory.getFirst());
+		LOGGER.info("Spread = " + spread);
+		
+		// Check if the spread is within the target range.
+		if (spread > SPOTLIGHT_HISTORY_MIN_SPREAD && spread < SPOTLIGHT_HISTORY_MAX_SPREAD) {
+			return true;
+		} else {
+			return false;
+		}
 	}
 
 	private PVector calculateLinePoint(PVector start, PVector end, float distance) {
