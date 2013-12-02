@@ -68,6 +68,7 @@ public class WayFinder extends PApplet {
 	private static final int FRAME_RATE = 30;
 	private static final int FRAME_COUNT_THRESHOLD = 10;
 	private static final int MIN_VALID_CONTOUR_AREA = 800; // TODO: Tweek this value.
+	private static final float DESTINATION_NAME_POSITION_MULTIPLIER = 1.1f;
 
 	private ArrayList<Destination> destinations;
 	private PVector spotlightCenter3D;
@@ -76,14 +77,13 @@ public class WayFinder extends PApplet {
 	private boolean detected;
 	private boolean debugView;
 	private int frameCount;
-
 	private VideoCapture capture;
 
 	// Detection sample: http://mateuszstankiewicz.eu/?p=189
 	// private org.opencv.video.BackgroundSubtractorMOG2 bg; // TODO: Binding doesn't exist due to bug! http://code.opencv.org/issues/3171#note-1
 	private BackgroundSubtractorMOG bg;
-	private Mat frame;
-	private Mat back;
+	private Mat cvFrame;
+	//private Mat back;
 	private Mat fore;
 	ArrayList<MatOfPoint> contours;
 	ArrayList<MatOfPoint> debugShowlargestContour;
@@ -143,8 +143,8 @@ public class WayFinder extends PApplet {
 			bg.setInt("nmixtures", 3);
 			// bg.set("bShadowDetection", false);
 			// bg.setBool("detectShadows", true);
-			frame = new Mat();
-			back = new Mat();
+			cvFrame = new Mat();
+			//back = new Mat();
 			fore = new Mat();
 			contours = new ArrayList<MatOfPoint>();
 			debugShowlargestContour = new ArrayList<MatOfPoint>();
@@ -176,20 +176,20 @@ public class WayFinder extends PApplet {
         	detected = false;
 
         	// Get the current frame.
-        	capture.retrieve(frame);
+        	capture.retrieve(cvFrame);
     	    LOGGER.fine("Frame Obtained");
     	    
         	// TODO: Consider converting capture to grayscale or blurring then thresholding to improve performance.
         	//Mat frameGray, frameBlurred, frameThresh, foreGray, backGray;
-            //Imgproc.cvtColor(frame, frameGray, CV_BGR2GRAY);
+            //Imgproc.cvtColor(cvFrame, frameGray, CV_BGR2GRAY);
             //int blurAmount = 10;
-            //Imgproc.blur(frame, frameBlurred, cv.Size(blurAmount, blurAmount));
+            //Imgproc.blur(cvFrame, frameBlurred, cv.Size(blurAmount, blurAmount));
             //Imgproc.threshold(frameBlurred, frameThresh, 100, 255, CV_THRESH_BINARY);
     	    //Imgproc.erode(fore, fore, new Mat());
             //Imgproc.dilate(fore, fore, new Mat());
 
     	    // Subtract background.
-            bg.apply(frame, fore);
+            bg.apply(cvFrame, fore);
             
             // Get all contours.
             Imgproc.findContours(fore, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE);
@@ -224,9 +224,9 @@ public class WayFinder extends PApplet {
             if(debugView) {
             	debugShowlargestContour.clear();
                 if(contours.size() > 0) {
-                	Imgproc.drawContours(frame, contours, -1, new Scalar(0, 0, 255), 2);
+                	Imgproc.drawContours(cvFrame, contours, -1, new Scalar(0, 0, 255), 2);
                 	debugShowlargestContour.add(contours.get(largestIndex));
-                	Imgproc.drawContours(frame, debugShowlargestContour, -1, new Scalar(255, 0, 0), 2);
+                	Imgproc.drawContours(cvFrame, debugShowlargestContour, -1, new Scalar(255, 0, 0), 2);
                 }
             }
     	    
@@ -234,7 +234,7 @@ public class WayFinder extends PApplet {
 		}
 
 	    if(debugView)
-	    	image(OpenCvUtil.toPImage(this, frame), 0, 0);
+	    	image(OpenCvUtil.toPImage(this, cvFrame), 0, 0);
 
 	    if (detected) {
 	        guide();
@@ -257,8 +257,8 @@ public class WayFinder extends PApplet {
 			// Vectors should be of uniform length. Need a point *along* the
 			// vector at a predefined distance from the start point.
 			PVector endPt = calculateLinePoint(spotlightCenter3D, iter.getVector(), arrowLength);
-			// FIXME: Destination names need to be placed at the end of the arrows...maybe? Or is this actually better?
-			PVector namePt = calculateLinePoint(spotlightCenter3D, iter.getVector(), arrowLength * 2 / 3);
+			// Destination names need to be placed at the end of the arrows.
+			PVector namePt = calculateLinePoint(spotlightCenter3D, iter.getVector(), arrowLength * DESTINATION_NAME_POSITION_MULTIPLIER);
 
 			fill(255, 255, 255);
 			// Draw a line from the spotlight center to each of the
@@ -275,9 +275,13 @@ public class WayFinder extends PApplet {
 	 * Put all cleanup stuff here.
 	 */
 	private void cleanup() {
-		// FIXME: Need to release other resources - app keeps running after window closes!
+		// TODO: Need to release other resources - app keeps running after window closes!
 		if (capture != null)
 			capture.release();
+		if (cvFrame != null)
+			cvFrame.release();
+		if (fore != null)
+			fore.release();
 	}
 
 	public void stop() {
