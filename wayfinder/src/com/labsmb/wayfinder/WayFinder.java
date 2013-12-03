@@ -1,23 +1,4 @@
 /*
-#include "cinder/app/AppNative.h"
-#include "cinder/gl/gl.h"
-#include "cinder/ImageIo.h"
-#include "cinder/gl/Texture.h"
-#include "cinder/Capture.h"
-#include "CinderOpenCv.h"
-#include "boost/lexical_cast.hpp"
-#include "Destination.h"
-#include <vector>
-#include<iostream>
-#include <opencv2/imgproc/imgproc.hpp>
-#include "cinder/app/KeyEvent.h"
-
-using namespace ci;
-using namespace ci.app;
-using namespace std;
- */
-
-/*
  Reference:
  http://www.codeproject.com/Articles/10248/Motion-Detection-Algorithms
  http://mateuszstankiewicz.eu/?p=189
@@ -33,32 +14,32 @@ package com.labsmb.wayfinder;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
-import java.util.List;
-import java.util.Stack;
 import java.util.logging.ConsoleHandler;
 import java.util.logging.Logger;
 
 import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-
-import processing.core.*;
-import processing.opengl.Texture;
-import processing.video.*;
-
-import com.labsmb.util.OpenCvUtil;
-import com.labsmb.util.ShapeUtil;
-
-import org.opencv.core.*;
-//import org.opencv.core.CvType;
+import org.opencv.core.Core;
 import org.opencv.core.Mat;
-import org.opencv.highgui.Highgui;
+import org.opencv.core.MatOfPoint;
+import org.opencv.core.Scalar;
 import org.opencv.highgui.VideoCapture;
 import org.opencv.imgproc.Imgproc;
 import org.opencv.imgproc.Moments;
 import org.opencv.video.BackgroundSubtractorMOG;
 
+import processing.core.PApplet;
+import processing.core.PVector;
+
+import com.labsmb.util.OpenCvUtil;
+import com.labsmb.util.ShapeUtil;
+import controlP5.*;
+
 public class WayFinder extends PApplet {
+	// In order to suppress serialization warning. 
+	private static final long serialVersionUID = 1L;
+
 	// Logging:
 	private final static Logger LOGGER = Logger.getLogger(WayFinder.class.getName() + "Logger");
 
@@ -68,13 +49,17 @@ public class WayFinder extends PApplet {
 	// private static final int WIDTH = 1280;
 	// private static final int HEIGHT = 720;
 	private static final int FRAME_RATE = 30;
-	private static final int FRAME_COUNT_THRESHOLD = 10;
-	private static final int MIN_VALID_CONTOUR_AREA = 800; // TODO: Tweek this value.
 	private static final float DESTINATION_NAME_POSITION_MULTIPLIER = 1.1f;
-	private static int SPOTLIGHT_HISTORY_MAX_LENGTH = FRAME_RATE;
-	private static float SPOTLIGHT_HISTORY_MIN_SPREAD = 10.0f;
-	private static float SPOTLIGHT_HISTORY_MAX_SPREAD = 200.0f;
+	private static final int SPOTLIGHT_HISTORY_MAX_LENGTH = (int) FRAME_RATE / 10;
+	private static int CP5_SLIDER_HEIGHT = 10;
+	private static int CP5_SLIDER_WIDTH = 150;
 
+	// FIXME: Turn these into CP5 controls:
+	private float spotlightHistoryMinSpread = 10.0f; // TODO: RANGE!
+	private float spotlightHistoryMaxSpread = 500.0f; // TODO: RANGE!
+	private int frameCountThreshold = 10;
+	private int mogNmixtures = 3;
+	
 	private ArrayList<Destination> destinations;
 	private PVector spotlightCenter3D;
 	private LinkedList<PVector> spotlightHistory;
@@ -94,6 +79,10 @@ public class WayFinder extends PApplet {
 	ArrayList<MatOfPoint> contours;
 	ArrayList<MatOfPoint> debugShowlargestContour;
 
+	// Debug controls.
+	public ControlP5 cp5;
+	public Slider cp5MinValidContourArea;
+	
 	/**
 	 * HACK: Get this PApplet to run from command line.
 	 * 
@@ -133,7 +122,7 @@ public class WayFinder extends PApplet {
 			LOGGER.info("Destinations loaded.");
 
 			// Initialized state.
-			spotlightRadius = (float) width / 16.0f;
+			spotlightRadius = (float) width / 16.0f; // TODO: Need to define range and change this based on CP5 event.
 			arrowLength = (float) min(width, height) / 2.0f;
 			spotlightCenter3D = new PVector((float) width / 2.0f, (float) height / 2.0f, 0.0f);
 			spotlightHistory = new LinkedList<PVector>();
@@ -147,7 +136,7 @@ public class WayFinder extends PApplet {
 		    }
 			
 			bg = new BackgroundSubtractorMOG();
-			bg.setInt("nmixtures", 3);
+			bg.setInt("nmixtures", mogNmixtures); // TODO: Need to define range and change this based on CP5 event.
 			// bg.set("bShadowDetection", false);
 			// bg.setBool("detectShadows", true);
 			cvFrame = new Mat();
@@ -156,7 +145,13 @@ public class WayFinder extends PApplet {
 			contours = new ArrayList<MatOfPoint>();
 			debugShowlargestContour = new ArrayList<MatOfPoint>();
 			frameCount = 0;
-			debugView = false;
+			debugView = true;
+
+			cp5 = new ControlP5(this);
+			cp5MinValidContourArea = cp5.addSlider("MinValidContourArea").setPosition(10, 10).setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT).setRange(0, 5000)
+					.setValue(800).setVisible(debugView);
+			cp5MinValidContourArea.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5MinValidContourArea.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
 		} catch (Exception ex) {
 			String msg = "Exception details: \nType: " + ex.getClass().toString() + "\nMessage: " + ex.getMessage() + "\nStack trace: "
 					+ ExceptionUtils.getStackTrace(ex) + "\n\n" + "Object state: "
@@ -179,7 +174,7 @@ public class WayFinder extends PApplet {
 		background(0.0f);
 		contours.clear();
 		
-        if(frameCount % FRAME_COUNT_THRESHOLD == 0) { // Don't detect with every frame.
+        if(frameCount % frameCountThreshold == 0) { // Don't detect with every frame.
         	detected = false;
 
         	// Get the current frame.
@@ -214,7 +209,8 @@ public class WayFinder extends PApplet {
 
             if(contours.size() > 0) {
                 // Make sure the blog is large enough to be a track-worthy.
-                if (largestContourArea >= MIN_VALID_CONTOUR_AREA) {
+            	LOGGER.info("largestContourArea = " + largestContourArea);
+                if (largestContourArea >= (double) cp5MinValidContourArea.getValue()) {
                 	// Find the center mass of the contour.
                 	// Source: http://stackoverflow.com/questions/18345969/how-to-get-the-mass-center-of-a-contour-android-opencv
                     Moments moments = Imgproc.moments(contours.get(largestIndex));
@@ -237,8 +233,9 @@ public class WayFinder extends PApplet {
                 	Imgproc.drawContours(cvFrame, debugShowlargestContour, -1, new Scalar(255, 0, 0), 2);
                 }
             }
-    	    
-	        // TODO: Create control panel for all inputs.
+
+            // Debug controls:
+            cp5MinValidContourArea.setVisible(debugView);
 		}
 
 	    if(debugView)
@@ -262,7 +259,7 @@ public class WayFinder extends PApplet {
 		LOGGER.info("Spread = " + spread);
 		
 		// Check if the spread is within the target range.
-		if (spread > SPOTLIGHT_HISTORY_MIN_SPREAD && spread < SPOTLIGHT_HISTORY_MAX_SPREAD) {
+		if (spread > spotlightHistoryMinSpread && spread < spotlightHistoryMaxSpread) {
 			return true;
 		} else {
 			return false;

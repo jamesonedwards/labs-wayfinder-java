@@ -61,6 +61,7 @@ public class Dot {
 
 	// Making this ctor private so that you have to pass params from external
 	// call.
+	@SuppressWarnings("unused")
 	private Dot() {
 
 	}
