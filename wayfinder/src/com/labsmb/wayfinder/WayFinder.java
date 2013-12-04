@@ -37,7 +37,7 @@ import com.labsmb.util.ShapeUtil;
 import controlP5.*;
 
 public class WayFinder extends PApplet {
-	// In order to suppress serialization warning. 
+	// In order to suppress serialization warning.
 	private static final long serialVersionUID = 1L;
 
 	// Logging:
@@ -53,17 +53,20 @@ public class WayFinder extends PApplet {
 	private static final int SPOTLIGHT_HISTORY_MAX_LENGTH = (int) FRAME_RATE / 10;
 	private static int CP5_SLIDER_HEIGHT = 10;
 	private static int CP5_SLIDER_WIDTH = 150;
+	private static int CP5_SLIDER_X = 10;
+	private static int CP5_SLIDER_Y_BUFFER = 15;
+	private static int CP5_BACKGROUND_BUFFER = 5;
+	private static int CP5_BACKGROUND_WIDTH = CP5_SLIDER_WIDTH + (CP5_BACKGROUND_BUFFER * 2);
 
 	// FIXME: Turn these into CP5 controls:
-	private float spotlightHistoryMinSpread = 10.0f; // TODO: RANGE!
-	private float spotlightHistoryMaxSpread = 500.0f; // TODO: RANGE!
-	private int frameCountThreshold = 10;
-	private int mogNmixtures = 3;
-	
+	private int defaultMogNmixtures = 3;
+	// history – Length of the history.
+	// backgroundRatio – Background ratio.
+	// noiseSigma – Noise strength.
+
 	private ArrayList<Destination> destinations;
 	private PVector spotlightCenter3D;
 	private LinkedList<PVector> spotlightHistory;
-	private float spotlightRadius;
 	private float arrowLength;
 	private boolean detected;
 	private boolean debugView;
@@ -71,18 +74,24 @@ public class WayFinder extends PApplet {
 	private VideoCapture capture;
 
 	// Detection sample: http://mateuszstankiewicz.eu/?p=189
-	// private org.opencv.video.BackgroundSubtractorMOG2 bg; // TODO: Binding doesn't exist due to bug! http://code.opencv.org/issues/3171#note-1
+	// private org.opencv.video.BackgroundSubtractorMOG2 bg;
+	// TODO: Binding doesn't exist due to bug! http://code.opencv.org/issues/3171#note-1
 	private BackgroundSubtractorMOG bg;
 	private Mat cvFrame;
-	//private Mat back;
+	// private Mat back;
 	private Mat fore;
 	ArrayList<MatOfPoint> contours;
 	ArrayList<MatOfPoint> debugShowlargestContour;
 
 	// Debug controls.
+	private ArrayList<Controller<?>> cp5Controls;
 	public ControlP5 cp5;
 	public Slider cp5MinValidContourArea;
-	
+	public Slider cp5MogNmixtures;
+	public Range cp5SpotlightHistorySpread;
+	public Slider cp5FrameCountThreshold;
+	public Slider cp5SpotlightRadius;
+
 	/**
 	 * HACK: Get this PApplet to run from command line.
 	 * 
@@ -122,7 +131,6 @@ public class WayFinder extends PApplet {
 			LOGGER.info("Destinations loaded.");
 
 			// Initialized state.
-			spotlightRadius = (float) width / 16.0f; // TODO: Need to define range and change this based on CP5 event.
 			arrowLength = (float) min(width, height) / 2.0f;
 			spotlightCenter3D = new PVector((float) width / 2.0f, (float) height / 2.0f, 0.0f);
 			spotlightHistory = new LinkedList<PVector>();
@@ -131,16 +139,16 @@ public class WayFinder extends PApplet {
 			// Start the video capture.
 			capture = new VideoCapture(0);
 			capture.open(0);
-		    if(!capture.isOpened()){
-		        throw new Exception("Camera Error");
-		    }
-			
+			if (!capture.isOpened()) {
+				throw new Exception("Camera Error");
+			}
+
 			bg = new BackgroundSubtractorMOG();
-			bg.setInt("nmixtures", mogNmixtures); // TODO: Need to define range and change this based on CP5 event.
+			bg.setInt("nmixtures", defaultMogNmixtures);
 			// bg.set("bShadowDetection", false);
 			// bg.setBool("detectShadows", true);
 			cvFrame = new Mat();
-			//back = new Mat();
+			// back = new Mat();
 			fore = new Mat();
 			contours = new ArrayList<MatOfPoint>();
 			debugShowlargestContour = new ArrayList<MatOfPoint>();
@@ -148,10 +156,43 @@ public class WayFinder extends PApplet {
 			debugView = true;
 
 			cp5 = new ControlP5(this);
-			cp5MinValidContourArea = cp5.addSlider("MinValidContourArea").setPosition(10, 10).setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT).setRange(0, 5000)
-					.setValue(800).setVisible(debugView);
+			cp5Controls = new ArrayList<Controller<?>>();
+
+			cp5MinValidContourArea = cp5.addSlider("MinValidContourArea").setPosition(10, CP5_SLIDER_Y_BUFFER).setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT)
+					.setRange(0, 5000).setValue(800).setVisible(debugView);
 			cp5MinValidContourArea.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
 			cp5MinValidContourArea.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5Controls.add(cp5MinValidContourArea);
+
+			cp5SpotlightHistorySpread = cp5.addRange("SpotlightHistorySpread")
+					// Disable broadcasting since setRange and setRangeValues will trigger an event.
+					.setBroadcast(false).setPosition(CP5_SLIDER_X, CP5_SLIDER_Y_BUFFER * 3).setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT).setHandleSize(10)
+					.setRange(0, 2000).setRangeValues(100, 500)
+					// After the initialization we turn broadcast back on again.
+					.setBroadcast(true).setVisible(debugView);
+			cp5SpotlightHistorySpread.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5SpotlightHistorySpread.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5Controls.add(cp5SpotlightHistorySpread);
+
+			cp5FrameCountThreshold = cp5.addSlider("FrameCountThreshold").setPosition(CP5_SLIDER_X, CP5_SLIDER_Y_BUFFER * 5)
+					.setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT).setRange(1, FRAME_RATE).setValue(10).setVisible(debugView);
+			cp5FrameCountThreshold.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5FrameCountThreshold.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5Controls.add(cp5FrameCountThreshold);
+
+			cp5SpotlightRadius = cp5.addSlider("SpotlightRadius").setPosition(CP5_SLIDER_X, CP5_SLIDER_Y_BUFFER * 7)
+					.setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT).setRange((float) width / 32.0f, (float) width / 2.0f).setValue((float) width / 16.0f)
+					.setVisible(debugView);
+			cp5SpotlightRadius.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5SpotlightRadius.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5Controls.add(cp5SpotlightRadius);
+
+			cp5MogNmixtures = cp5.addSlider("MogNmixtures").setPosition(CP5_SLIDER_X, CP5_SLIDER_Y_BUFFER * 9).setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT)
+					.setRange(1, 10).setValue(defaultMogNmixtures).setVisible(debugView);
+			cp5MogNmixtures.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5MogNmixtures.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5Controls.add(cp5MogNmixtures);
+
 		} catch (Exception ex) {
 			String msg = "Exception details: \nType: " + ex.getClass().toString() + "\nMessage: " + ex.getMessage() + "\nStack trace: "
 					+ ExceptionUtils.getStackTrace(ex) + "\n\n" + "Object state: "
@@ -168,98 +209,107 @@ public class WayFinder extends PApplet {
 			debugView = !debugView;
 		}
 	}
-	
+
 	public void draw() {
 		frameCount++;
 		background(0.0f);
 		contours.clear();
-		
-        if(frameCount % frameCountThreshold == 0) { // Don't detect with every frame.
-        	detected = false;
 
-        	// Get the current frame.
-        	capture.retrieve(cvFrame);
-    	    LOGGER.fine("Frame Obtained");
-    	    
-        	// TODO: Consider converting capture to grayscale or blurring then thresholding to improve performance.
-        	//Mat frameGray, frameBlurred, frameThresh, foreGray, backGray;
-            //Imgproc.cvtColor(cvFrame, frameGray, CV_BGR2GRAY);
-            //int blurAmount = 10;
-            //Imgproc.blur(cvFrame, frameBlurred, cv.Size(blurAmount, blurAmount));
-            //Imgproc.threshold(frameBlurred, frameThresh, 100, 255, CV_THRESH_BINARY);
-    	    //Imgproc.erode(fore, fore, new Mat());
-            //Imgproc.dilate(fore, fore, new Mat());
+		// Don't detect with every frame.
+		if (frameCount % (int) cp5FrameCountThreshold.getValue() == 0) {
+			detected = false;
 
-    	    // Subtract background.
-            bg.apply(cvFrame, fore);
-            
-            // Get all contours.
-            Imgproc.findContours(fore, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE);
+			// Get the current frame.
+			capture.retrieve(cvFrame);
+			LOGGER.fine("Frame Obtained");
+			int nmixtures = (int) cp5MogNmixtures.getValue();
 
-            // Get largest contour: http://stackoverflow.com/questions/15012073/opencv-draw-draw-contours-of-2-largest-objects
-            int largestIndex = 0;
-            double largestContourArea = 0;
-            for(int i = 0; i < contours.size(); i++) {
-            	double contourArea = Imgproc.contourArea(contours.get(i));
-                if(contourArea > largestContourArea) {
-                	largestContourArea = contourArea;
-                    largestIndex = i;
-                }
-            }
+			try {
+				// Subtract background.
+				// bg.apply(cvFrame, fore, .5);
+				// FIXME: Strange bug: if I set this to "(int) 4.01f" it works, but if I set it to "(int) cp5MogNmixtures.getValue()" I get an error.
+				if (nmixtures > 0)
+					bg.setInt("nmixtures", nmixtures);
+				// bg.setInt("nmixtures", 10);
+				bg.apply(cvFrame, fore);
 
-            if(contours.size() > 0) {
-                // Make sure the blog is large enough to be a track-worthy.
-            	LOGGER.info("largestContourArea = " + largestContourArea);
-                if (largestContourArea >= (double) cp5MinValidContourArea.getValue()) {
-                	// Find the center mass of the contour.
-                	// Source: http://stackoverflow.com/questions/18345969/how-to-get-the-mass-center-of-a-contour-android-opencv
-                    Moments moments = Imgproc.moments(contours.get(largestIndex));
-                    spotlightCenter3D.x = (float)(moments.get_m10() / moments.get_m00());
-                    spotlightCenter3D.y = (float)(moments.get_m01() / moments.get_m00());
-                    //spotlightRadius = (rect.width + rect.y) / 2;
-                 
-                    // Show guide.
-                    //detected = true;
-                    detected = isLost();
-                }
-            }
+				// Get all contours.
+				Imgproc.findContours(fore, contours, new Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE);
 
-            // When debug mode is off, the background should be black.
-            if(debugView) {
-            	debugShowlargestContour.clear();
-                if(contours.size() > 0) {
-                	Imgproc.drawContours(cvFrame, contours, -1, new Scalar(0, 0, 255), 2);
-                	debugShowlargestContour.add(contours.get(largestIndex));
-                	Imgproc.drawContours(cvFrame, debugShowlargestContour, -1, new Scalar(255, 0, 0), 2);
-                }
-            }
+				// Get largest contour:
+				// http://stackoverflow.com/questions/15012073/opencv-draw-draw-contours-of-2-largest-objects
+				int largestIndex = 0;
+				double largestContourArea = 0;
+				for (int i = 0; i < contours.size(); i++) {
+					double contourArea = Imgproc.contourArea(contours.get(i));
+					if (contourArea > largestContourArea) {
+						largestContourArea = contourArea;
+						largestIndex = i;
+					}
+				}
 
-            // Debug controls:
-            cp5MinValidContourArea.setVisible(debugView);
+				if (contours.size() > 0) {
+					// Make sure the blog is large enough to be a track-worthy.
+					LOGGER.info("largestContourArea = " + largestContourArea);
+					if (largestContourArea >= (double) cp5MinValidContourArea.getValue()) {
+						// Find the center mass of the contour.
+						// Source:
+						// http://stackoverflow.com/questions/18345969/how-to-get-the-mass-center-of-a-contour-android-opencv
+						Moments moments = Imgproc.moments(contours.get(largestIndex));
+						spotlightCenter3D.x = (float) (moments.get_m10() / moments.get_m00());
+						spotlightCenter3D.y = (float) (moments.get_m01() / moments.get_m00());
+
+						// Show guide.
+						detected = isLost();
+					}
+				}
+
+				// When debug mode is off, the background should be black.
+				if (debugView) {
+					debugShowlargestContour.clear();
+					if (contours.size() > 0) {
+						Imgproc.drawContours(cvFrame, contours, -1, new Scalar(0, 0, 255), 2);
+						debugShowlargestContour.add(contours.get(largestIndex));
+						Imgproc.drawContours(cvFrame, debugShowlargestContour, -1, new Scalar(255, 0, 0), 2);
+					}
+				}
+			} catch (Exception ex) {
+				LOGGER.warning("MOG exception occurred with nmixtures = " + nmixtures + " and cp5MogNmixtures.getValue() = " + cp5MogNmixtures.getValue()
+						+ ": " + ex.getMessage());
+			}
+
+			// Show/hid debug controls:
+			for (Controller<?> item : cp5Controls) {
+				item.setVisible(debugView);
+			}
 		}
 
-	    if(debugView)
-	    	image(OpenCvUtil.toPImage(this, cvFrame), 0, 0);
+		if (debugView) {
+			image(OpenCvUtil.toPImage(this, cvFrame), 0, 0);
+			fill(100);
+			rect(CP5_SLIDER_X - CP5_BACKGROUND_BUFFER, CP5_SLIDER_Y_BUFFER - CP5_BACKGROUND_BUFFER, CP5_BACKGROUND_WIDTH, cp5Controls.size()
+					* CP5_SLIDER_Y_BUFFER * 2 + (CP5_BACKGROUND_BUFFER * 2));
+		}
 
-	    if (detected) {
-	        guide();
-	    }
+		if (detected) {
+			guide();
+		}
 	}
-	
+
 	private boolean isLost() {
 		// Push current position onto stack.
 		spotlightHistory.push(new PVector(spotlightCenter3D.x, spotlightCenter3D.y, spotlightCenter3D.z));
-		
+
 		// Trim the history.
 		if (spotlightHistory.size() > SPOTLIGHT_HISTORY_MAX_LENGTH)
 			spotlightHistory.poll();
-		
+
 		// Calculate the change in position though the history.
 		float spread = PVector.dist(spotlightHistory.getLast(), spotlightHistory.getFirst());
 		LOGGER.info("Spread = " + spread);
-		
+
 		// Check if the spread is within the target range.
-		if (spread > spotlightHistoryMinSpread && spread < spotlightHistoryMaxSpread) {
+		if (spread > cp5SpotlightHistorySpread.getLowValue() && spread < cp5SpotlightHistorySpread.getHighValue()) {
 			return true;
 		} else {
 			return false;
@@ -274,8 +324,8 @@ public class WayFinder extends PApplet {
 
 	private void guide() {
 		// Draw the spotlight, centered around the detected location.
-		ShapeUtil.drawCircle(this, spotlightCenter3D.x, spotlightCenter3D.y, spotlightRadius, new int[] { 255, 255, 255 });
-		ShapeUtil.drawCircle(this, spotlightCenter3D.x, spotlightCenter3D.y, spotlightRadius * 2 / 3, new int[] { 0, 0, 0 });
+		ShapeUtil.drawCircle(this, spotlightCenter3D.x, spotlightCenter3D.y, cp5SpotlightRadius.getValue(), new int[] { 255, 255, 255 });
+		ShapeUtil.drawCircle(this, spotlightCenter3D.x, spotlightCenter3D.y, cp5SpotlightRadius.getValue() * 2 / 3, new int[] { 0, 0, 0 });
 		// fill(255, 255, 255);
 
 		for (Destination iter : destinations) {
@@ -300,7 +350,8 @@ public class WayFinder extends PApplet {
 	 * Put all cleanup stuff here.
 	 */
 	private void cleanup() {
-		// TODO: Need to release other resources - app keeps running after window closes!
+		// TODO: Need to release other resources - app keeps running after
+		// window closes!
 		if (capture != null)
 			capture.release();
 		if (cvFrame != null)
