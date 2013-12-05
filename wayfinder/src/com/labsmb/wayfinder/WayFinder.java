@@ -12,7 +12,14 @@
 
 package com.labsmb.wayfinder;
 
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.LinkedList;
 import java.util.logging.Handler;
 import java.util.logging.Level;
@@ -123,13 +130,13 @@ public class WayFinder extends PApplet {
 
 		// Setup logging.
 		LOGGER.setLevel(LOG_LEVEL);
-		
-		// Get all handlers from the top level ("") logger, and set the logging threshold.
-	    for (Handler handler : Logger.getLogger("").getHandlers()) {
-	    	handler.setLevel(LOG_LEVEL);
-	    }
 
-	    try {
+		// Get all handlers from the top level ("") logger, and set the logging threshold.
+		for (Handler handler : Logger.getLogger("").getHandlers()) {
+			handler.setLevel(LOG_LEVEL);
+		}
+
+		try {
 			LOGGER.info("WayFinder started.");
 
 			// Disable window resizing.
@@ -245,22 +252,39 @@ public class WayFinder extends PApplet {
 			break;
 		case 's':
 			// Save the current config set.
-			for (Controller<?> item : cp5Controls) {
-				String msg = null;
-				String controlType = item.getClass().getName();
-				switch (controlType) {
-				case "controlP5.Slider":
-					msg = item.getName() + ": " + item.getValue();
-					break;
-				case "controlP5.Range":
-					Range itemTmp = (Range) item;
-					msg = item.getName() + ": " + itemTmp.getLowValue() + " = " + itemTmp.getHighValue();
-					break;
-				default:
-					msg = "Unknown control type \"" + controlType + "\": " + item.getName();
+			String savedConfigPath = "saved-config" + File.separator + "saved-config-" + Calendar.getInstance().getTimeInMillis() + ".txt";
+			Writer writer = null;
+
+			try {
+				writer = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(savedConfigPath), "utf-8"));
+
+				for (Controller<?> item : cp5Controls) {
+					String msg = null;
+					String controlType = item.getClass().getName();
+					switch (controlType) {
+					case "controlP5.Slider":
+						msg = item.getName() + ": " + item.getValue();
+						break;
+					case "controlP5.Range":
+						Range itemTmp = (Range) item;
+						msg = item.getName() + ": " + itemTmp.getLowValue() + " = " + itemTmp.getHighValue();
+						break;
+					default:
+						msg = "Unknown control type \"" + controlType + "\": " + item.getName();
+					}
+					writer.write(msg + "\n");
 				}
-				LOGGER.warning(msg);
+			} catch (IOException ex) {
+				LOGGER.severe("Cannot write to file \"" + savedConfigPath + "\". Details: " + ex.getMessage());
+			} finally {
+				try {
+					writer.close();
+				} catch (Exception ex) {
+					LOGGER.severe("Cannot close Writer. Exiting: " + ex.getMessage());
+					exit();
+				}
 			}
+			LOGGER.info("Config file saved to \"" + savedConfigPath + "\"");
 			break;
 		}
 	}
@@ -276,7 +300,6 @@ public class WayFinder extends PApplet {
 
 			// Get the current frame.
 			capture.retrieve(cvFrame);
-			LOGGER.fine("Frame Obtained");
 
 			try {
 				// Subtract background.
@@ -312,7 +335,7 @@ public class WayFinder extends PApplet {
 
 				if (contours.size() > 0) {
 					// Make sure the blog is large enough to be a track-worthy.
-					LOGGER.info("largestContourArea = " + largestContourArea);
+					LOGGER.fine("largestContourArea = " + largestContourArea);
 					if (largestContourArea >= (double) cp5MinValidContourArea.getValue()) {
 						// Find the center mass of the contour.
 						// Source:
@@ -368,7 +391,7 @@ public class WayFinder extends PApplet {
 
 		// Calculate the change in position though the history.
 		float spread = PVector.dist(spotlightHistory.getLast(), spotlightHistory.getFirst());
-		LOGGER.info("Spread = " + spread);
+		LOGGER.fine("Spread = " + spread);
 
 		// Check if the spread is within the target range.
 		if (spread > cp5SpotlightHistorySpread.getLowValue() && spread < cp5SpotlightHistorySpread.getHighValue()) {
