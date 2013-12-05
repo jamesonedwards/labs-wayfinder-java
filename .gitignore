@@ -3,3 +3,4 @@
 /wayfinder/.settings
 /wayfinder/bin
 *.class
+/wayfinder/saved-config/*.txt
