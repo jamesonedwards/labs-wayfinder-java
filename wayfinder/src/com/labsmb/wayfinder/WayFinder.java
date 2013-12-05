@@ -14,7 +14,8 @@ package com.labsmb.wayfinder;
 
 import java.util.ArrayList;
 import java.util.LinkedList;
-import java.util.logging.ConsoleHandler;
+import java.util.logging.Handler;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.apache.commons.lang3.builder.ReflectionToStringBuilder;
@@ -34,14 +35,19 @@ import processing.core.PVector;
 
 import com.labsmb.util.OpenCvUtil;
 import com.labsmb.util.ShapeUtil;
-import controlP5.*;
+
+import controlP5.ControlP5;
+import controlP5.Controller;
+import controlP5.Range;
+import controlP5.Slider;
 
 public class WayFinder extends PApplet {
 	// In order to suppress serialization warning.
 	private static final long serialVersionUID = 1L;
 
 	// Logging:
-	private final static Logger LOGGER = Logger.getLogger(WayFinder.class.getName() + "Logger");
+	private static final Logger LOGGER = Logger.getLogger(WayFinder.class.getName() + "Logger");
+	private static final Level LOG_LEVEL = Level.FINEST;
 
 	// Constants:
 	private static final int WINDOW_WIDTH = 640;
@@ -116,10 +122,14 @@ public class WayFinder extends PApplet {
 		frameRate(FRAME_RATE);
 
 		// Setup logging.
-		LOGGER.setLevel(java.util.logging.Level.INFO);
-		LOGGER.addHandler(new ConsoleHandler());
+		LOGGER.setLevel(LOG_LEVEL);
+		
+		// Get all handlers from the top level ("") logger, and set the logging threshold.
+	    for (Handler handler : Logger.getLogger("").getHandlers()) {
+	    	handler.setLevel(LOG_LEVEL);
+	    }
 
-		try {
+	    try {
 			LOGGER.info("WayFinder started.");
 
 			// Disable window resizing.
@@ -227,10 +237,31 @@ public class WayFinder extends PApplet {
 	}
 
 	public void keyPressed() {
-		if (key == 'd') {
+		switch (key) {
+		case 'd':
 			// Toggle btwn debug view and normal view.
 			background(0.0f);
 			debugView = !debugView;
+			break;
+		case 's':
+			// Save the current config set.
+			for (Controller<?> item : cp5Controls) {
+				String msg = null;
+				String controlType = item.getClass().getName();
+				switch (controlType) {
+				case "controlP5.Slider":
+					msg = item.getName() + ": " + item.getValue();
+					break;
+				case "controlP5.Range":
+					Range itemTmp = (Range) item;
+					msg = item.getName() + ": " + itemTmp.getLowValue() + " = " + itemTmp.getHighValue();
+					break;
+				default:
+					msg = "Unknown control type \"" + controlType + "\": " + item.getName();
+				}
+				LOGGER.warning(msg);
+			}
+			break;
 		}
 	}
 
