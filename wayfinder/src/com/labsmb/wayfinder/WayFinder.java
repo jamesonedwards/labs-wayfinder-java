@@ -51,18 +51,18 @@ public class WayFinder extends PApplet {
 	private static final int FRAME_RATE = 30;
 	private static final float DESTINATION_NAME_POSITION_MULTIPLIER = 1.1f;
 	private static final int SPOTLIGHT_HISTORY_MAX_LENGTH = (int) FRAME_RATE / 10;
-	private static int CP5_SLIDER_HEIGHT = 10;
-	private static int CP5_SLIDER_WIDTH = 150;
-	private static int CP5_SLIDER_X = 10;
-	private static int CP5_SLIDER_Y_BUFFER = 15;
-	private static int CP5_BACKGROUND_BUFFER = 5;
-	private static int CP5_BACKGROUND_WIDTH = CP5_SLIDER_WIDTH + (CP5_BACKGROUND_BUFFER * 2);
-
-	// FIXME: Turn these into CP5 controls:
-	private int defaultMogNmixtures = 3;
-	// history – Length of the history.
-	// backgroundRatio – Background ratio.
-	// noiseSigma – Noise strength.
+	private static final int CP5_SLIDER_HEIGHT = 10;
+	private static final int CP5_SLIDER_WIDTH = 150;
+	private static final int CP5_SLIDER_X = 10;
+	private static final int CP5_SLIDER_Y_BUFFER = 15;
+	private static final int CP5_BACKGROUND_BUFFER = 5;
+	private static final int CP5_BACKGROUND_WIDTH = CP5_SLIDER_WIDTH + (CP5_BACKGROUND_BUFFER * 2);
+	private static final int MAX_MOG_NMIXTURES = 10;
+	private static final int MIN_MOG_NMIXTURES = 1;
+	private static final String MOG_PARAM_NAME_HISTORY = "history";
+	private static final String MOG_PARAM_NAME_NMIXTURES = "nmixtures";
+	private static final String MOG_PARAM_NAME_BACKGROUND_RATIO = "backgroundRatio";
+	private static final String MOG_PARAM_NAME_NOISE_SIGMA = "noiseSigma";
 
 	private ArrayList<Destination> destinations;
 	private PVector spotlightCenter3D;
@@ -87,10 +87,13 @@ public class WayFinder extends PApplet {
 	private ArrayList<Controller<?>> cp5Controls;
 	public ControlP5 cp5;
 	public Slider cp5MinValidContourArea;
-	public Slider cp5MogNmixtures;
 	public Range cp5SpotlightHistorySpread;
 	public Slider cp5FrameCountThreshold;
 	public Slider cp5SpotlightRadius;
+	public Slider cp5MogHistory; // Length of the history.
+	public Slider cp5MogNmixtures; // Number of Gaussian mixtures.
+	public Slider cp5MogBackgroundRatio; // Background ratio.
+	public Slider cp5MogNoiseSigma; // Noise strength.
 
 	/**
 	 * HACK: Get this PApplet to run from command line.
@@ -144,7 +147,10 @@ public class WayFinder extends PApplet {
 			}
 
 			bg = new BackgroundSubtractorMOG();
-			bg.setInt("nmixtures", defaultMogNmixtures);
+			/**
+			 * For some reason you cannot increase the value of nmixtures once it is initially set, you can only decrease it. So initially set it to the max
+			 * value, and then set it in the draw method to the actual default value.
+			 */
 			// bg.set("bShadowDetection", false);
 			// bg.setBool("detectShadows", true);
 			cvFrame = new Mat();
@@ -188,11 +194,29 @@ public class WayFinder extends PApplet {
 			cp5Controls.add(cp5SpotlightRadius);
 
 			cp5MogNmixtures = cp5.addSlider("MogNmixtures").setPosition(CP5_SLIDER_X, CP5_SLIDER_Y_BUFFER * 9).setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT)
-					.setRange(1, 10).setValue(defaultMogNmixtures).setVisible(debugView);
+					.setRange(MIN_MOG_NMIXTURES, MAX_MOG_NMIXTURES).setValue(bg.getInt(MOG_PARAM_NAME_NMIXTURES)).setVisible(debugView);
 			cp5MogNmixtures.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
 			cp5MogNmixtures.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
 			cp5Controls.add(cp5MogNmixtures);
 
+			cp5MogBackgroundRatio = cp5.addSlider("MogBackgroundRatio").setPosition(CP5_SLIDER_X, CP5_SLIDER_Y_BUFFER * 11)
+					.setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT).setRange(0, 1).setValue((float) bg.getDouble(MOG_PARAM_NAME_BACKGROUND_RATIO))
+					.setVisible(debugView);
+			cp5MogBackgroundRatio.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5MogBackgroundRatio.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5Controls.add(cp5MogBackgroundRatio);
+
+			cp5MogHistory = cp5.addSlider("MogHistory").setPosition(CP5_SLIDER_X, CP5_SLIDER_Y_BUFFER * 13).setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT)
+					.setRange(50, 1000).setValue(bg.getInt(MOG_PARAM_NAME_HISTORY)).setVisible(debugView);
+			cp5MogHistory.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5MogHistory.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5Controls.add(cp5MogHistory);
+
+			cp5MogNoiseSigma = cp5.addSlider("MogNoiseSigma").setPosition(CP5_SLIDER_X, CP5_SLIDER_Y_BUFFER * 15).setSize(CP5_SLIDER_WIDTH, CP5_SLIDER_HEIGHT)
+					.setRange(0, 50).setValue((float) bg.getDouble(MOG_PARAM_NAME_NOISE_SIGMA)).setVisible(debugView);
+			cp5MogNoiseSigma.getValueLabel().align(ControlP5.LEFT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5MogNoiseSigma.getCaptionLabel().align(ControlP5.RIGHT, ControlP5.BOTTOM_OUTSIDE).setPaddingX(0);
+			cp5Controls.add(cp5MogNoiseSigma);
 		} catch (Exception ex) {
 			String msg = "Exception details: \nType: " + ex.getClass().toString() + "\nMessage: " + ex.getMessage() + "\nStack trace: "
 					+ ExceptionUtils.getStackTrace(ex) + "\n\n" + "Object state: "
@@ -222,15 +246,22 @@ public class WayFinder extends PApplet {
 			// Get the current frame.
 			capture.retrieve(cvFrame);
 			LOGGER.fine("Frame Obtained");
-			int nmixtures = (int) cp5MogNmixtures.getValue();
 
 			try {
 				// Subtract background.
 				// bg.apply(cvFrame, fore, .5);
-				// FIXME: Strange bug: if I set this to "(int) 4.01f" it works, but if I set it to "(int) cp5MogNmixtures.getValue()" I get an error.
-				if (nmixtures > 0)
-					bg.setInt("nmixtures", nmixtures);
-				// bg.setInt("nmixtures", 10);
+
+				// If any of the BackgroundSubtractorMOG parameters have changed, create a new BackgroundSubtractorMOG object with the current values.
+				if (bg.getInt(MOG_PARAM_NAME_NMIXTURES) != (int) cp5MogNmixtures.getValue()
+						|| bg.getDouble(MOG_PARAM_NAME_BACKGROUND_RATIO) != (double) cp5MogBackgroundRatio.getValue()
+						|| bg.getInt(MOG_PARAM_NAME_HISTORY) != (int) cp5MogHistory.getValue()
+						|| bg.getDouble(MOG_PARAM_NAME_NOISE_SIGMA) != (double) cp5MogNoiseSigma.getValue()) {
+					bg = new BackgroundSubtractorMOG();
+					bg.setInt(MOG_PARAM_NAME_NMIXTURES, (int) cp5MogNmixtures.getValue());
+					bg.setDouble(MOG_PARAM_NAME_BACKGROUND_RATIO, (double) cp5MogBackgroundRatio.getValue());
+					bg.setInt(MOG_PARAM_NAME_HISTORY, (int) cp5MogHistory.getValue());
+					bg.setDouble(MOG_PARAM_NAME_NOISE_SIGMA, (double) cp5MogNoiseSigma.getValue());
+				}
 				bg.apply(cvFrame, fore);
 
 				// Get all contours.
@@ -274,8 +305,8 @@ public class WayFinder extends PApplet {
 					}
 				}
 			} catch (Exception ex) {
-				LOGGER.warning("MOG exception occurred with nmixtures = " + nmixtures + " and cp5MogNmixtures.getValue() = " + cp5MogNmixtures.getValue()
-						+ ": " + ex.getMessage());
+				LOGGER.warning("MOG exception occurred with nmixtures = " + bg.getInt(MOG_PARAM_NAME_NMIXTURES) + " and cp5MogNmixtures.getValue() = "
+						+ cp5MogNmixtures.getValue() + ": " + ex.getMessage());
 			}
 
 			// Show/hid debug controls:
