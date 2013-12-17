@@ -12,5 +12,5 @@ http://www.youtube.com/watch?v=9Ft3OACM6sU
 More on OpenCV can be found here:
 http://opencv.org/
 
-More on Cinder can be found here:
-http://libcinder.org/
+More on Processing can be found here:
+http://www.processing.org/
